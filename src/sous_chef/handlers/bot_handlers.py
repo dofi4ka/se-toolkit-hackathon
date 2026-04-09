@@ -364,11 +364,11 @@ async def on_text(message: Message) -> None:
         await _handle_llm_turn(message, chat_id=chat_id, user_id=user_id, state=state, system=sys)
         return
 
-    # IDLE: LLM expands query to 1–3 English searches, then DDG (+ scraper filter); else DDG-only
+    # IDLE: LLM expands query to 1–2 English searches, then DDG (+ scraper filter); else DDG-only
     logger.info("handler.search: chat_id=%s text=%r", chat_id, text)
 
     await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
-    status_msg = await message.answer("Searching for recipes… May take up to 30 seconds.")
+    status_msg = await message.answer("Starting search…")
 
     settings = _s()
     raw: list[dict[str, Any]] = []
@@ -378,10 +378,20 @@ async def on_text(message: Message) -> None:
             user_id,
             settings.llm_max_requests_per_user_per_hour,
         ):
+            status_msg = await _update_search_status_message(
+                message,
+                status_msg,
+                "Expanding search with AI and querying the web…",
+            )
             raw = await fetch_ddg_candidates_via_llm(settings, text)
         else:
             logger.info("handler.search: rate limit hit, falling back to DDG-only")
     if not raw:
+        status_msg = await _update_search_status_message(
+            message,
+            status_msg,
+            "Searching the web (no AI query expansion)…",
+        )
         raw = search_recipe_candidates(text, max_collect=30)
     if not raw:
         logger.warning("handler.search: no raw URLs for chat_id=%s query=%r", chat_id, text)
@@ -397,10 +407,22 @@ async def on_text(message: Message) -> None:
     status_msg = await _update_search_status_message(
         message,
         status_msg,
-        f"Found {len(raw)} results, verifying and merging… May take up to 30 seconds.",
+        f"Found {len(raw)} links. Opening each page to verify…",
     )
 
-    candidates = await filter_candidates_by_scrape(raw, max_keep=5)
+    async def _scrape_progress(attempt: int, total: int, _url: str) -> None:
+        nonlocal status_msg
+        status_msg = await _update_search_status_message(
+            message,
+            status_msg,
+            f"Verifying recipe pages… ({attempt}/{total})",
+        )
+
+    candidates = await filter_candidates_by_scrape(
+        raw,
+        max_keep=5,
+        on_progress=_scrape_progress,
+    )
     if not candidates:
         logger.warning("handler.search: no candidates for chat_id=%s query=%r", chat_id, text)
         try:

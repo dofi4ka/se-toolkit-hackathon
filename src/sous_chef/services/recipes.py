@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from recipe_scrapers import scrape_html, scrape_me, scraper_exists_for
@@ -30,10 +31,9 @@ def search_recipe_candidates(query: str, max_collect: int = 30) -> list[dict[str
         logger.warning("search.step1_input: empty query, abort")
         return []
 
-    # Primary query; fallback queries if needed
+    # At most two DDG calls: primary + light fallback
     search_queries = [
         f"{raw_q} recipe",
-        f"{raw_q} allrecipes",
         raw_q,
     ]
 
@@ -135,18 +135,27 @@ def search_recipe_candidates(query: str, max_collect: int = 30) -> list[dict[str
 async def filter_candidates_by_scrape(
     candidates: list[dict[str, Any]],
     max_keep: int = 5,
+    *,
+    on_progress: Callable[[int, int, str], Awaitable[None]] | None = None,
 ) -> list[dict[str, Any]]:
     """
     Keep URLs in order only if scrape_recipe_from_url succeeds.
     Each kept item includes the parsed 'recipe' dict (avoids a second fetch on pick).
+
+    on_progress(attempt, total_candidates, url) is awaited before each scrape (1-based attempt).
     """
     out: list[dict[str, Any]] = []
+    total = len(candidates)
+    scrape_attempt = 0
     for c in candidates:
         if len(out) >= max_keep:
             break
         url = (c.get("url") or "").strip()
         if not url:
             continue
+        scrape_attempt += 1
+        if on_progress is not None:
+            await on_progress(scrape_attempt, total, url)
         recipe = await asyncio.to_thread(scrape_recipe_from_url, url)
         if recipe is None:
             logger.info("filter_scrape: drop url=%r", url[:200])

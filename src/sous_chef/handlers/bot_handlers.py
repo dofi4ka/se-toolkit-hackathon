@@ -329,7 +329,7 @@ def _cooking_keyboard(
             row2.append(
                 InlineKeyboardButton(text="Rewrite with AI", callback_data="cook:step_rewrite")
             )
-            rows.append(row2)
+        rows.append(row2)
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -338,11 +338,12 @@ def _cooking_step_message(state: SessionState) -> str:
     if not recipe:
         return ""
     steps = recipe.get("steps") or []
+    i = state.step_index
     return _format_cooking_step_message(
         recipe,
-        state.step_index,
+        i,
         len(steps),
-        show_ai=state.cooking_show_ai_step,
+        show_ai=state.cooking_show_ai_step.get(str(i), False),
         step_ai_rewrite=state.step_ai_rewrite,
     )
 
@@ -357,7 +358,7 @@ def _cooking_keyboard_from_state(state: SessionState) -> InlineKeyboardMarkup:
     return _cooking_keyboard(
         i,
         total,
-        show_ai=state.cooking_show_ai_step,
+        show_ai=state.cooking_show_ai_step.get(str(i), False),
         has_cached_ai=str(i) in state.step_ai_rewrite,
     )
 
@@ -533,7 +534,7 @@ async def on_text(message: Message) -> None:
     state.checked = []
     state.step_index = 0
     state.step_ai_rewrite = {}
-    state.cooking_show_ai_step = False
+    state.cooking_show_ai_step = {}
     state.user_sent_messages = False
     state.llm_messages = []
     await _persist(chat_id, state)
@@ -592,7 +593,7 @@ async def cb_recipe(query: CallbackQuery) -> None:
     state.checked = []
     state.step_index = 0
     state.step_ai_rewrite = {}
-    state.cooking_show_ai_step = False
+    state.cooking_show_ai_step = {}
     state.llm_messages = []
     await _persist(chat_id, state)
 
@@ -675,7 +676,7 @@ async def cb_cook_start(query: CallbackQuery) -> None:
     state.mode = Mode.COOKING.value
     state.step_index = 0
     state.step_ai_rewrite = {}
-    state.cooking_show_ai_step = False
+    state.cooking_show_ai_step = {}
     state.llm_messages = []
     await _persist(chat_id, state)
 
@@ -765,7 +766,7 @@ async def cb_cook_step_rewrite(query: CallbackQuery) -> None:
         return
 
     state.step_ai_rewrite[str(i)] = text_out
-    state.cooking_show_ai_step = True
+    state.cooking_show_ai_step[str(i)] = True
     await _persist(chat_id, state)
 
     await _sync_interactive_message(
@@ -789,7 +790,7 @@ async def cb_cook_step_original(query: CallbackQuery) -> None:
         await query.answer("Not in cooking mode.", show_alert=True)
         return
 
-    state.cooking_show_ai_step = False
+    state.cooking_show_ai_step[str(state.step_index)] = False
     await _persist(chat_id, state)
 
     await _sync_interactive_message(
@@ -817,7 +818,7 @@ async def cb_cook_step_show_ai(query: CallbackQuery) -> None:
         await query.answer("Rewrite this step first.", show_alert=True)
         return
 
-    state.cooking_show_ai_step = True
+    state.cooking_show_ai_step[str(state.step_index)] = True
     await _persist(chat_id, state)
 
     await _sync_interactive_message(
@@ -866,7 +867,6 @@ async def cb_cook_nav(query: CallbackQuery) -> None:
         await query.answer()
         return
 
-    state.cooking_show_ai_step = False
     await _persist(chat_id, state)
     await _sync_interactive_message(
         query,

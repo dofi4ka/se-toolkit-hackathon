@@ -172,7 +172,6 @@ async def _update_search_status_message(message: Message, status_msg: Message, t
 
 
 @router.message(CommandStart())
-@router.message(Command("start"))
 async def cmd_start(message: Message) -> None:
     if message.chat is None:
         return
@@ -310,7 +309,7 @@ async def _handle_llm_turn(
         settings.llm_max_requests_per_user_per_hour,
     ):
         await message.answer(
-            "Too many assistant requests this hour. Try again later or use /stop and continue later.",
+            "Too many assistant requests this hour. Try again later or use /withdraw and continue later.",
         )
         return
 
@@ -491,7 +490,7 @@ async def cb_recipe(query: CallbackQuery) -> None:
     await query.answer("Loading recipe…")
     await query.message.bot.send_chat_action(query.message.chat.id, ChatAction.TYPING)
 
-    recipe = cand.get("recipe") or scrape_recipe_from_url(url)
+    recipe = cand.get("recipe") or await asyncio.to_thread(scrape_recipe_from_url, url)
     if not recipe:
         await query.message.answer(
             "Could not load this recipe. Pick another option or search again.",

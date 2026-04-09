@@ -28,6 +28,10 @@ class SessionState:
     recipe: dict[str, Any] | None = None
     checked: list[int] = field(default_factory=list)
     step_index: int = 0
+    # Cooking: optional AI-rewritten text per step index (JSON keys are strings).
+    step_ai_rewrite: dict[str, str] = field(default_factory=dict)
+    # When True, the step card shows AI text (if cached for step_index).
+    cooking_show_ai_step: bool = False
     # True only until the next inline UI update: set after an LLM reply, cleared after any
     # recipe/checklist/cooking button refresh (including ingredient toggles).
     user_sent_messages: bool = False
@@ -47,6 +51,13 @@ class SessionState:
                 llm_messages.append(
                     {"role": str(m["role"]), "content": str(m["content"])[:12000]}
                 )
+        raw_ai = data.get("step_ai_rewrite") or {}
+        step_ai_rewrite: dict[str, str] = {}
+        if isinstance(raw_ai, dict):
+            for k, v in raw_ai.items():
+                if v is not None:
+                    step_ai_rewrite[str(k)] = str(v)[:12000]
+
         return cls(
             mode=data.get("mode", Mode.IDLE.value),
             query=data.get("query", ""),
@@ -54,6 +65,8 @@ class SessionState:
             recipe=data.get("recipe"),
             checked=data.get("checked") or [],
             step_index=int(data.get("step_index", 0)),
+            step_ai_rewrite=step_ai_rewrite,
+            cooking_show_ai_step=bool(data.get("cooking_show_ai_step")),
             user_sent_messages=bool(data.get("user_sent_messages")),
             llm_messages=llm_messages,
         )

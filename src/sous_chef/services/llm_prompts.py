@@ -44,6 +44,27 @@ def system_checklist(*, recipe: dict[str, Any]) -> str:
     )
 
 
+def system_rewrite_step() -> str:
+    return (
+        "You rewrite a single recipe cooking step for clarity and readability. "
+        "Preserve meaning, times, temperatures, amounts, and ingredient names. "
+        "Do not add new steps, omit safety notes, or invent ingredients. "
+        "Reply with ONLY the rewritten step text — no title, no preamble, no markdown code fences."
+    )
+
+
+def user_rewrite_step(*, recipe: dict[str, Any], step_index: int) -> str:
+    steps = recipe.get("steps") or []
+    cur = ""
+    if 0 <= step_index < len(steps):
+        cur = str(steps[step_index]).strip()
+    block = _recipe_block(recipe)
+    return (
+        f"Full recipe context:\n{block}\n"
+        f"Rewrite step {step_index + 1} only.\n\nOriginal step text:\n{cur}"
+    )
+
+
 def system_cooking(*, recipe: dict[str, Any], step_index: int) -> str:
     steps = recipe.get("steps") or []
     cur = ""

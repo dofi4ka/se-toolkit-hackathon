@@ -17,7 +17,13 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 
 from sous_chef.config import Settings
 from sous_chef.services.llm import cap_llm_messages, complete_chat
-from sous_chef.services.llm_prompts import system_checklist, system_choosing, system_cooking
+from sous_chef.services.llm_prompts import (
+    system_checklist,
+    system_choosing,
+    system_cooking,
+    system_rewrite_step,
+    user_rewrite_step,
+)
 from sous_chef.services.rate_limit import allow_llm_request
 from sous_chef.services.recipe_agent import fetch_ddg_candidates_via_llm
 from sous_chef.services.recipes import (
@@ -258,6 +264,103 @@ def _recipe_keyboard(candidates: list[dict[str, Any]]) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+_COOKING_AI_DISCLAIMER = (
+    "<i>This step was rewritten for clarity by AI "
+    "(not the original publisher).</i>"
+)
+
+
+def _format_cooking_step_message(
+    recipe: dict[str, Any],
+    step_index: int,
+    total: int,
+    *,
+    show_ai: bool,
+    step_ai_rewrite: dict[str, str],
+) -> str:
+    title = recipe.get("title", "Recipe")
+    steps = recipe.get("steps") or []
+    step_text = steps[step_index] if 0 <= step_index < len(steps) else ""
+    key = str(step_index)
+    if show_ai and key in step_ai_rewrite:
+        return (
+            f"<b>{_h(title)}</b> — step {step_index + 1}/{total}\n\n"
+            f"{_h(step_ai_rewrite[key])}\n\n"
+            f"{_COOKING_AI_DISCLAIMER}\n\n"
+            f"<i>Reply in chat for cooking help.</i>"
+        )
+    return (
+        f"<b>{_h(title)}</b> — step {step_index + 1}/{total}\n\n{_h(step_text)}\n\n"
+        f"<i>Reply in chat for cooking help.</i>"
+    )
+
+
+def _cooking_keyboard(
+    step_index: int,
+    total: int,
+    *,
+    show_ai: bool,
+    has_cached_ai: bool,
+) -> InlineKeyboardMarkup:
+    """Row 1: Back + Next/Stop. Row 2: AI rewrite / toggle."""
+    is_last = total > 0 and step_index >= total - 1
+    if is_last:
+        row1 = [
+            InlineKeyboardButton(text="◀ Back", callback_data="cook:back"),
+            InlineKeyboardButton(text="Stop cooking", callback_data="cook:stop"),
+        ]
+    else:
+        row1 = [
+            InlineKeyboardButton(text="◀ Back", callback_data="cook:back"),
+            InlineKeyboardButton(text="Next ▶", callback_data="cook:next"),
+        ]
+    rows: list[list[InlineKeyboardButton]] = [row1]
+    if show_ai:
+        rows.append(
+            [InlineKeyboardButton(text="Show original", callback_data="cook:step_original")]
+        )
+    else:
+        row2: list[InlineKeyboardButton] = []
+        if has_cached_ai:
+            row2.append(
+                InlineKeyboardButton(text="Show AI version", callback_data="cook:step_show_ai")
+            )
+        row2.append(
+            InlineKeyboardButton(text="Rewrite with AI", callback_data="cook:step_rewrite")
+        )
+        rows.append(row2)
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _cooking_step_message(state: SessionState) -> str:
+    recipe = state.recipe
+    if not recipe:
+        return ""
+    steps = recipe.get("steps") or []
+    return _format_cooking_step_message(
+        recipe,
+        state.step_index,
+        len(steps),
+        show_ai=state.cooking_show_ai_step,
+        step_ai_rewrite=state.step_ai_rewrite,
+    )
+
+
+def _cooking_keyboard_from_state(state: SessionState) -> InlineKeyboardMarkup:
+    recipe = state.recipe
+    if not recipe:
+        return InlineKeyboardMarkup(inline_keyboard=[])
+    steps = recipe.get("steps") or []
+    total = len(steps)
+    i = state.step_index
+    return _cooking_keyboard(
+        i,
+        total,
+        show_ai=state.cooking_show_ai_step,
+        has_cached_ai=str(i) in state.step_ai_rewrite,
+    )
+
+
 def _checklist_keyboard(ingredients: list[str], checked: set[int]) -> InlineKeyboardMarkup:
     rows = []
     for i, ing in enumerate(ingredients):
@@ -266,22 +369,6 @@ def _checklist_keyboard(ingredients: list[str], checked: set[int]) -> InlineKeyb
         rows.append([InlineKeyboardButton(text=text, callback_data=f"ing:{i}")])
     rows.append([InlineKeyboardButton(text="Start cooking", callback_data="cook:start")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
-
-
-def _cooking_keyboard(step_index: int, total: int) -> InlineKeyboardMarkup:
-    """Last step: Back + Stop. Earlier steps: Back + Next."""
-    is_last = total > 0 and step_index >= total - 1
-    if is_last:
-        row = [
-            InlineKeyboardButton(text="◀ Back", callback_data="cook:back"),
-            InlineKeyboardButton(text="Stop cooking", callback_data="cook:stop"),
-        ]
-    else:
-        row = [
-            InlineKeyboardButton(text="◀ Back", callback_data="cook:back"),
-            InlineKeyboardButton(text="Next ▶", callback_data="cook:next"),
-        ]
-    return InlineKeyboardMarkup(inline_keyboard=[row])
 
 
 async def _handle_llm_turn(
@@ -444,6 +531,8 @@ async def on_text(message: Message) -> None:
     state.recipe = None
     state.checked = []
     state.step_index = 0
+    state.step_ai_rewrite = {}
+    state.cooking_show_ai_step = False
     state.user_sent_messages = False
     state.llm_messages = []
     await _persist(chat_id, state)
@@ -501,6 +590,8 @@ async def cb_recipe(query: CallbackQuery) -> None:
     state.recipe = recipe
     state.checked = []
     state.step_index = 0
+    state.step_ai_rewrite = {}
+    state.cooking_show_ai_step = False
     state.llm_messages = []
     await _persist(chat_id, state)
 
@@ -582,21 +673,17 @@ async def cb_cook_start(query: CallbackQuery) -> None:
 
     state.mode = Mode.COOKING.value
     state.step_index = 0
+    state.step_ai_rewrite = {}
+    state.cooking_show_ai_step = False
     state.llm_messages = []
     await _persist(chat_id, state)
 
-    total = len(steps)
-    step_text = steps[0]
-    title = state.recipe.get("title", "Recipe")
-    body = (
-        f"<b>{_h(title)}</b> — step 1/{total}\n\n{_h(step_text)}\n\n"
-        f"<i>Reply in chat for cooking help.</i>"
-    )
+    body = _cooking_step_message(state)
     await _sync_interactive_message(
         query,
         text=body,
         parse_mode="HTML",
-        reply_markup=_cooking_keyboard(0, total),
+        reply_markup=_cooking_keyboard_from_state(state),
         prefer_new_message=state.user_sent_messages,
     )
     await _persist_after_interactive_update(chat_id, state)
@@ -623,6 +710,123 @@ async def cb_cook_stop(query: CallbackQuery) -> None:
         reply_markup=no_keyboard,
         prefer_new_message=prefer_new,
     )
+    await query.answer()
+
+
+@router.callback_query(F.data == "cook:step_rewrite")
+async def cb_cook_step_rewrite(query: CallbackQuery) -> None:
+    if query.message is None or query.from_user is None:
+        await query.answer()
+        return
+    chat_id = query.message.chat.id
+    user_id = query.from_user.id
+    state = await _load(chat_id)
+    if state.mode != Mode.COOKING.value or not state.recipe:
+        await query.answer("Not in cooking mode.", show_alert=True)
+        return
+    steps = state.recipe.get("steps") or []
+    i = state.step_index
+    if i < 0 or i >= len(steps):
+        await query.answer()
+        return
+
+    settings = _s()
+    if not settings.llm_api_key or not settings.llm_model:
+        await query.answer("Assistant not configured.", show_alert=True)
+        return
+
+    if not await allow_llm_request(
+        _r(),
+        user_id,
+        settings.llm_max_requests_per_user_per_hour,
+    ):
+        await query.answer("Too many AI requests this hour.", show_alert=True)
+        return
+
+    await query.answer()
+
+    reply = await _await_with_typing_keepalive(
+        query.bot,
+        chat_id,
+        complete_chat(
+            settings,
+            system=system_rewrite_step(),
+            history=[],
+            user_message=user_rewrite_step(recipe=state.recipe, step_index=i),
+        ),
+    )
+
+    text_out = (reply or "").strip()
+    if not text_out or text_out.startswith("Could not get"):
+        await query.message.answer(
+            "Could not rewrite this step. Try again later.",
+        )
+        return
+
+    state.step_ai_rewrite[str(i)] = text_out
+    state.cooking_show_ai_step = True
+    await _persist(chat_id, state)
+
+    await _sync_interactive_message(
+        query,
+        text=_cooking_step_message(state),
+        parse_mode="HTML",
+        reply_markup=_cooking_keyboard_from_state(state),
+        prefer_new_message=state.user_sent_messages,
+    )
+    await _persist_after_interactive_update(chat_id, state)
+
+
+@router.callback_query(F.data == "cook:step_original")
+async def cb_cook_step_original(query: CallbackQuery) -> None:
+    if query.message is None or query.from_user is None:
+        await query.answer()
+        return
+    chat_id = query.message.chat.id
+    state = await _load(chat_id)
+    if state.mode != Mode.COOKING.value or not state.recipe:
+        await query.answer("Not in cooking mode.", show_alert=True)
+        return
+
+    state.cooking_show_ai_step = False
+    await _persist(chat_id, state)
+
+    await _sync_interactive_message(
+        query,
+        text=_cooking_step_message(state),
+        parse_mode="HTML",
+        reply_markup=_cooking_keyboard_from_state(state),
+        prefer_new_message=state.user_sent_messages,
+    )
+    await _persist_after_interactive_update(chat_id, state)
+    await query.answer()
+
+
+@router.callback_query(F.data == "cook:step_show_ai")
+async def cb_cook_step_show_ai(query: CallbackQuery) -> None:
+    if query.message is None or query.from_user is None:
+        await query.answer()
+        return
+    chat_id = query.message.chat.id
+    state = await _load(chat_id)
+    if state.mode != Mode.COOKING.value or not state.recipe:
+        await query.answer("Not in cooking mode.", show_alert=True)
+        return
+    if str(state.step_index) not in state.step_ai_rewrite:
+        await query.answer("Rewrite this step first.", show_alert=True)
+        return
+
+    state.cooking_show_ai_step = True
+    await _persist(chat_id, state)
+
+    await _sync_interactive_message(
+        query,
+        text=_cooking_step_message(state),
+        parse_mode="HTML",
+        reply_markup=_cooking_keyboard_from_state(state),
+        prefer_new_message=state.user_sent_messages,
+    )
+    await _persist_after_interactive_update(chat_id, state)
     await query.answer()
 
 
@@ -661,19 +865,13 @@ async def cb_cook_nav(query: CallbackQuery) -> None:
         await query.answer()
         return
 
+    state.cooking_show_ai_step = False
     await _persist(chat_id, state)
-    i = state.step_index
-    step_text = steps[i]
-    title = state.recipe.get("title", "Recipe")
-    body = (
-        f"<b>{_h(title)}</b> — step {i + 1}/{total}\n\n{_h(step_text)}\n\n"
-        f"<i>Reply in chat for cooking help.</i>"
-    )
     await _sync_interactive_message(
         query,
-        text=body,
+        text=_cooking_step_message(state),
         parse_mode="HTML",
-        reply_markup=_cooking_keyboard(i, total),
+        reply_markup=_cooking_keyboard_from_state(state),
         prefer_new_message=state.user_sent_messages,
     )
     await _persist_after_interactive_update(chat_id, state)

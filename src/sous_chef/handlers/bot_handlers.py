@@ -302,7 +302,7 @@ def _cooking_keyboard(
     show_ai: bool,
     has_cached_ai: bool,
 ) -> InlineKeyboardMarkup:
-    """Row 1: Back + Next/Stop. Row 2: AI rewrite / toggle."""
+    """Row 1: Back + Next/Stop. Row 2: rewrite, or toggle original ↔ AI when cached."""
     is_last = total > 0 and step_index >= total - 1
     if is_last:
         row1 = [
@@ -315,21 +315,18 @@ def _cooking_keyboard(
             InlineKeyboardButton(text="Next ▶", callback_data="cook:next"),
         ]
     rows: list[list[InlineKeyboardButton]] = [row1]
-    if show_ai:
+    if not has_cached_ai:
+        rows.append(
+            [InlineKeyboardButton(text="Rewrite with AI", callback_data="cook:step_rewrite")]
+        )
+    elif show_ai:
         rows.append(
             [InlineKeyboardButton(text="Show original", callback_data="cook:step_original")]
         )
     else:
-        row2: list[InlineKeyboardButton] = []
-        if has_cached_ai:
-            row2.append(
-                InlineKeyboardButton(text="Show AI version", callback_data="cook:step_show_ai")
-            )
-        else:
-            row2.append(
-                InlineKeyboardButton(text="Rewrite with AI", callback_data="cook:step_rewrite")
-            )
-        rows.append(row2)
+        rows.append(
+            [InlineKeyboardButton(text="Show AI version", callback_data="cook:step_show_ai")]
+        )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -355,12 +352,11 @@ def _cooking_keyboard_from_state(state: SessionState) -> InlineKeyboardMarkup:
     steps = recipe.get("steps") or []
     total = len(steps)
     i = state.step_index
-    return _cooking_keyboard(
-        i,
-        total,
-        show_ai=state.cooking_show_ai_step.get(str(i), False),
-        has_cached_ai=str(i) in state.step_ai_rewrite,
-    )
+    key = str(i)
+    cached = state.step_ai_rewrite.get(key)
+    has_cached_ai = bool(cached and str(cached).strip())
+    show_ai = state.cooking_show_ai_step.get(key, False)
+    return _cooking_keyboard(i, total, show_ai=show_ai, has_cached_ai=has_cached_ai)
 
 
 def _checklist_keyboard(ingredients: list[str], checked: set[int]) -> InlineKeyboardMarkup:

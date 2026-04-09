@@ -172,10 +172,10 @@ async def fetch_ddg_candidates_via_llm(settings: Settings, user_query: str) -> l
 
     logger.info("recipe_agent: queries=%s", queries)
 
-    async def run_one(q: str) -> list[dict[str, str]]:
-        return await asyncio.to_thread(_ddg_search_sync, q)
-
-    rounds = await asyncio.gather(*[run_one(q) for q in queries])
-    merged = _merge_hits(list(rounds), MAX_MERGED_URLS)
+    # Run DDG sequentially: concurrent asyncio.to_thread + ddgs/httpx can hang or deadlock.
+    rounds: list[list[dict[str, str]]] = []
+    for q in queries:
+        rounds.append(await asyncio.to_thread(_ddg_search_sync, q))
+    merged = _merge_hits(rounds, MAX_MERGED_URLS)
     logger.info("recipe_agent: merged count=%s (before scrape filter)", len(merged))
     return merged

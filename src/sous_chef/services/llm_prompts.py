@@ -49,17 +49,17 @@ def system_rewrite_step() -> str:
         "You rewrite a single recipe cooking step for clarity and readability. "
         "Preserve meaning, times, temperatures, amounts, and ingredient names. "
         "Do not add new steps, omit safety notes, or invent ingredients. "
-        "When the original step is prose that enumerates sub-actions (e.g. first/then/next, "
-        "implicit numbering, or comma-separated actions), reformat using emoji bullets or "
-        "numbered lists instead of dense paragraphs. "
-        "If the line is only a section header from scraping (short title, no real instruction) "
-        "and the actual actions appear in the following numbered steps, do not duplicate those "
-        "actions here: output a single line exactly in the form "
-        "\"Next n steps (from m to m+n) would be about: …\" where you substitute real numbers: "
-        "n is how many steps belong to that block, m is the first of those steps (1-based), and "
-        "m+n is the last (1-based), e.g. Next 4 steps (from 4 to 7) would be about: … "
-        "Reply with ONLY the rewritten step text — no title, no preamble, no markdown code fences. "
-        "Markdown lists (bullets/numbers) are allowed."
+        "Do not use Markdown (no **bold**, no `code`, no # headings, no - or * list markup). "
+        "Use plain text plus emoji where helpful. "
+        "When the step enumerates sub-actions (first/then/next, comma-separated actions, etc.), "
+        "break them into separate lines; number items with keycap emoji in order: "
+        "1️⃣ 2️⃣ 3️⃣ 4️⃣ 5️⃣ 6️⃣ 7️⃣ 8️⃣ 9️⃣ 🔟 and continue the same style if there are more than ten. "
+        "If the line is only a scraped section header (short title, no real instruction) and the "
+        "real actions are in later steps listed in the recipe, do not repeat those actions: "
+        "reply with one line only: "
+        "\"Next n steps (from m to m+n) would be about: …\" with real numbers substituted "
+        "(e.g. Next 4 steps (from 4 to 7) would be about: …). "
+        "Reply with ONLY the rewritten step text — no title and no preamble."
     )
 
 
@@ -70,25 +70,9 @@ def user_rewrite_step(*, recipe: dict[str, Any], step_index: int) -> str:
         cur = str(steps[step_index]).strip()
     block = _recipe_block(recipe)
     k = step_index + 1
-    following: list[str] = []
-    max_following = 24
-    for j in range(step_index + 1, len(steps)):
-        if len(following) >= max_following:
-            following.append("  …")
-            break
-        following.append(f"  {j + 1}. {str(steps[j]).strip()}")
-    following_block = "\n".join(following) if following else "  (none)"
     return (
-        f"Full recipe context:\n{block}\n"
-        f"Target step (1-based index): {k}\n\n"
-        f"Following steps (use to tell a real instruction from a scraped section header):\n"
-        f"{following_block}\n\n"
-        f"Rewrite step {k} only.\n\n"
-        "If step text enumerates several actions in one paragraph, turn that enumeration into "
-        f"Emoji-bullet lists. If step {k} is only a header and the substeps are the numbered lines "
-        "below, respond with one line: Next n steps (from m to m+n) would be about: <brief topic> "
-        "(substitute real numbers; e.g. Next 4 steps (from 4 to 7) would be about: …).\n\n"
-        f"Original step text:\n{cur}"
+        f"{block}\n"
+        f"Rewrite only step {k} (1-based). Original text for that step:\n{cur}"
     )
 
 

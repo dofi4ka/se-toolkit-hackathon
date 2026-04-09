@@ -325,10 +325,11 @@ def _cooking_keyboard(
             row2.append(
                 InlineKeyboardButton(text="Show AI version", callback_data="cook:step_show_ai")
             )
-        row2.append(
-            InlineKeyboardButton(text="Rewrite with AI", callback_data="cook:step_rewrite")
-        )
-        rows.append(row2)
+        else:
+            row2.append(
+                InlineKeyboardButton(text="Rewrite with AI", callback_data="cook:step_rewrite")
+            )
+            rows.append(row2)
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 

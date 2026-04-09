@@ -364,7 +364,7 @@ async def on_text(message: Message) -> None:
         await _handle_llm_turn(message, chat_id=chat_id, user_id=user_id, state=state, system=sys)
         return
 
-    # IDLE: LLM expands query to 1–2 English searches, then DDG (+ scraper filter); else DDG-only
+    # IDLE: LLM expands query to up to 3 English searches, then DDG (+ scraper filter); else DDG-only
     logger.info("handler.search: chat_id=%s text=%r", chat_id, text)
 
     await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
@@ -392,7 +392,7 @@ async def on_text(message: Message) -> None:
             status_msg,
             "Searching the web (no AI query expansion)…",
         )
-        raw = search_recipe_candidates(text, max_collect=30)
+        raw = search_recipe_candidates(text, max_collect=45)
     if not raw:
         logger.warning("handler.search: no raw URLs for chat_id=%s query=%r", chat_id, text)
         try:

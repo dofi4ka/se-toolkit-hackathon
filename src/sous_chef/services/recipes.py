@@ -19,7 +19,7 @@ def _title_from_url(url: str) -> str:
     return slug[:80] if slug else url[:60]
 
 
-def search_recipe_candidates(query: str, max_collect: int = 30) -> list[dict[str, str]]:
+def search_recipe_candidates(query: str, max_collect: int = 45) -> list[dict[str, str]]:
     """
     Collect up to max_collect {url, title, source} from DDG (scraper-supported URLs only).
     Call filter_candidates_by_scrape() to keep only URLs that scrape successfully.
@@ -31,9 +31,10 @@ def search_recipe_candidates(query: str, max_collect: int = 30) -> list[dict[str
         logger.warning("search.step1_input: empty query, abort")
         return []
 
-    # At most two DDG calls: primary + light fallback
+    # Three DDG passes: recipe-focused, site hint, raw query
     search_queries = [
         f"{raw_q} recipe",
+        f"{raw_q} allrecipes",
         raw_q,
     ]
 

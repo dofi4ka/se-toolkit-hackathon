@@ -10,10 +10,10 @@
 
 ## Search pipeline
 
-1. **Query expansion (optional):** if `LLM_API_KEY` and `LLM_MODEL` are set (and rate limit allows), the model returns **1–2 English search strings** from the user’s message (any language).
+1. **Query expansion (optional):** if `LLM_API_KEY` and `LLM_MODEL` are set (and rate limit allows), the model returns **1–3 English search strings** from the user’s message (any language).
 2. **Web search:** DuckDuckGo via `ddgs`; only URLs supported by `recipe-scrapers` (`scraper_exists_for`) are kept.
 3. **Verification:** each candidate URL is **fully scraped** before it appears in the list. Failed pages are dropped; successful parses attach a cached **`recipe`** payload so picking a result does not need a second fetch when possible.
-4. **Fallback:** if the LLM path yields nothing, the bot runs **at most two** DDG queries (`"{query} recipe"` and the raw query), then the same scrape filter.
+4. **Fallback:** if the LLM path yields nothing, the bot runs **up to three** DDG queries (`"{query} recipe"`, `"{query} allrecipes"`, then the raw query), then the same scrape filter.
 
 Users see **status messages** while work is in progress (e.g. searching, then “found N results, verifying…”).
 

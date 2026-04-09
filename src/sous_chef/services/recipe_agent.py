@@ -1,5 +1,5 @@
 """
-Recipe search: LLM turns the user message into 1–2 English DDG queries, then DDG + recipe-scrapers.
+Recipe search: LLM turns the user message into up to 3 English DDG queries, then DDG + recipe-scrapers.
 """
 
 from __future__ import annotations
@@ -15,17 +15,17 @@ from sous_chef.config import Settings
 
 logger = logging.getLogger(__name__)
 
-DDG_HITS_PER_CALL = 15
+DDG_HITS_PER_CALL = 22
 # Merge more URLs than we show, then keep only scrape-verified links.
-MAX_MERGED_URLS = 40
+MAX_MERGED_URLS = 60
 
 QUERY_REVIEW_SYSTEM = """You expand a user's cooking request into web search queries.
 
 Rules:
 - Input may be any language; output search queries must be English only.
 - Return exactly one JSON object, no markdown, no prose: {"queries":["..."]}
-- Provide exactly 1 or 2 distinct queries (prefer 1 if one good query is enough). Each short: dish + "recipe" or cuisine + dish + recipe.
-- Queries are for DuckDuckGo; avoid site-specific operators unless clearly helpful.
+- Provide 1 to 3 distinct queries. Vary wording (e.g. dish + recipe, regional name, site:allrecipes only if helpful). Keep each short.
+- Queries are for DuckDuckGo; avoid redundant near-duplicates.
 - Do not include explanations outside the JSON."""
 
 
@@ -51,7 +51,7 @@ def _parse_queries_json(raw: str) -> list[str]:
     if not isinstance(qs, list):
         return []
     out: list[str] = []
-    for x in qs[:2]:
+    for x in qs[:3]:
         q = str(x).strip()
         if q and q not in out:
             out.append(q)
@@ -115,7 +115,7 @@ def _merge_hits(rounds: list[list[dict[str, str]]], max_n: int) -> list[dict[str
 
 async def fetch_ddg_candidates_via_llm(settings: Settings, user_query: str) -> list[dict[str, str]]:
     """
-    LLM expands the request into 1–2 English queries, runs DDG, merges unique URLs
+    LLM expands the request into up to 3 English queries, runs DDG, merges unique URLs
     (scraper-supported only). Does not scrape — caller runs filter_candidates_by_scrape.
     """
     if not settings.llm_api_key or not settings.llm_model:

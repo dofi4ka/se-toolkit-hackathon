@@ -1,0 +1,14 @@
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+  bot:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - redis

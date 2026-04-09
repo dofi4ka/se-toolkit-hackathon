@@ -1,0 +1,26 @@
+[project]
+name = "sous-chef"
+version = "0.1.0"
+description = "Telegram sous-chef bot — recipes via ddgs + recipe-scrapers"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "aiogram>=3.4,<4",
+    "telegramify-markdown>=1.1,<2",
+    "redis>=5.0",
+    "openai>=1.0",
+    "python-dotenv>=1.0",
+    "recipe-scrapers>=15.0",
+    "ddgs>=9.0",
+    "httpx>=0.27",
+]
+
+[project.scripts]
+sous-chef = "sous_chef.main:main"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
